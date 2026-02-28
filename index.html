@@ -1,54 +1,29 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>🏀 Dunk Simulator</title>
 <style>
-  body{
-    margin:0;
-    background:#0b0f18;
-    color:white;
-    text-align:center;
-    font-family:Arial;
-  }
-  h1{margin:18px 0 5px;}
-  canvas{
-    background:#111827;
-    border-radius:20px;
-    margin:10px auto 10px;
-    display:block;
-    box-shadow:0 20px 50px rgba(0,0,0,.6);
-    max-width: 96vw;
-    height: auto;
-  }
-  .score{font-size:20px;margin-top:8px}
+  body{margin:0;background:#0b0f18;color:#fff;text-align:center;font-family:Arial}
+  h1{margin:18px 0 4px}
+  .score{font-size:20px;margin-top:6px}
   .tip{opacity:.75;margin:6px 0 10px;font-size:14px}
-  .controls{
-    display:flex;
-    justify-content:center;
-    gap:10px;
-    flex-wrap:wrap;
-    padding:10px 12px 18px;
+  canvas{
+    display:block;margin:10px auto 10px;
+    background:#111827;border-radius:20px;
+    box-shadow:0 20px 50px rgba(0,0,0,.6);
+    max-width:96vw;height:auto;
   }
-  .btn{
-    padding:12px 16px;
-    border-radius:14px;
-    border:0;
-    font-weight:800;
-    cursor:pointer;
-    background:#1f2937;
-    color:#fff;
-    min-width:90px;
-  }
+  .controls{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;padding:10px 12px 18px}
+  .btn{padding:12px 16px;border-radius:14px;border:0;font-weight:800;cursor:pointer;background:#1f2937;color:#fff;min-width:90px}
   .btn.jump{background:#f59e0b;color:#0b1020}
 </style>
 </head>
 <body>
-
 <h1>🏀 Dunk Simulator</h1>
 <div class="score">Score: <span id="score">0</span></div>
-<div class="tip">Move: A/D or ←/→ • Jump: Space • Phone: use buttons</div>
+<div class="tip">Move: A/D or ←/→ • Jump: Space • Score only when the BALL goes through the rim</div>
 
 <canvas id="game" width="800" height="450"></canvas>
 
@@ -63,30 +38,56 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const scoreEl = document.getElementById("score");
 
+const floorY = 350;
+const gravity = 0.6;
+
 let score = 0;
 let flash = 0;
 
-const floorY = 350;
-
-let player = {
-  x: 140,
-  y: 300,
-  r: 25,
-  vy: 0,
-  jumping: false,
-  speed: 5
-};
-
-let hoop = {
-  x: 620,
-  y: 210,
-  radius: 35
-};
-
-const gravity = 0.6;
-
-// keys
 const keys = { left:false, right:false };
+
+const player = {
+  x: 140, y: 300, r: 22,
+  vy: 0, speed: 5,
+  onGround: true
+};
+
+// Hoop (real rim circle + backboard)
+const hoop = {
+  x: 640,
+  y: 170,
+  rimR: 18,            // rim radius
+  boardX: 690,
+  boardY: 85,
+  boardW: 10,
+  boardH: 120
+};
+
+// Ball (separate physics)
+let ball = {
+  x: player.x + 18,
+  y: player.y - 24,
+  r: 10,
+  vx: 0,
+  vy: 0,
+  held: true,          // held by player until release
+  lastY: 0,
+  scoredThisShot: false
+};
+
+// dunk release control (prevents auto-spam)
+let canRelease = true;
+
+function resetBallHeld(){
+  ball.held = true;
+  ball.vx = 0; ball.vy = 0;
+  ball.scoredThisShot = false;
+}
+
+function respawnHoop(){
+  hoop.x = 420 + Math.random()*320;
+  hoop.boardX = hoop.x + 50;
+}
 
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -97,23 +98,33 @@ function draw(){
 
   // backboard
   ctx.fillStyle="#e5e7eb";
-  ctx.fillRect(hoop.x+30, hoop.y-60, 10, 70);
+  ctx.fillRect(hoop.boardX, hoop.boardY, hoop.boardW, hoop.boardH);
 
-  // rim (half circle)
+  // rim (full circle)
   ctx.strokeStyle="#f97316";
   ctx.lineWidth=6;
   ctx.beginPath();
-  ctx.arc(hoop.x, hoop.y, hoop.radius, Math.PI, 0);
+  ctx.arc(hoop.x, hoop.y, hoop.rimR, 0, Math.PI*2);
   ctx.stroke();
+
+  // net (simple)
+  ctx.strokeStyle="rgba(255,255,255,0.25)";
+  ctx.lineWidth=2;
+  for(let i=-2;i<=2;i++){
+    ctx.beginPath();
+    ctx.moveTo(hoop.x + i*6, hoop.y + hoop.rimR);
+    ctx.lineTo(hoop.x + i*3, hoop.y + hoop.rimR + 38);
+    ctx.stroke();
+  }
 
   // dunk flash
   if(flash>0){
-    ctx.fillStyle="rgba(255,176,0,0.25)";
+    ctx.fillStyle="rgba(255,176,0,0.22)";
     ctx.fillRect(0,0,canvas.width,canvas.height);
     flash--;
   }
 
-  // player body
+  // player
   ctx.fillStyle="#06b6d4";
   ctx.beginPath();
   ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
@@ -122,77 +133,141 @@ function draw(){
   // ball
   ctx.fillStyle="#ffb000";
   ctx.beginPath();
-  ctx.arc(player.x, player.y-35, 12, 0, Math.PI*2);
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
   ctx.fill();
+  // ball lines
+  ctx.strokeStyle="rgba(0,0,0,0.25)";
+  ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r-2, -0.6, 1.2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r-2, 2.0, 3.7); ctx.stroke();
 
-  // little “target” hint under hoop
+  // little target hint under hoop
   ctx.fillStyle="rgba(255,255,255,0.08)";
   ctx.fillRect(hoop.x-40, floorY-6, 80, 6);
 }
 
-function update(){
-  // movement
+function updatePlayer(){
   if(keys.left)  player.x -= player.speed;
   if(keys.right) player.x += player.speed;
-
-  // keep in bounds
   player.x = Math.max(player.r, Math.min(canvas.width-player.r, player.x));
 
-  // gravity
   player.vy += gravity;
   player.y += player.vy;
 
-  // floor collision
-  if(player.y > 300){
+  if(player.y >= 300){
     player.y = 300;
     player.vy = 0;
-    player.jumping = false;
+    player.onGround = true;
+    canRelease = true;      // allow a new dunk attempt
+    // if ball is still not held, pick it up automatically on landing
+    if(!ball.held) resetBallHeld();
+  } else {
+    player.onGround = false;
+  }
+}
+
+function releaseBallIfDunkAttempt(){
+  // Release ball only once per jump, when near rim and high enough
+  if(!ball.held || !canRelease) return;
+
+  const nearRimX = Math.abs(player.x - hoop.x) < 40;
+  const highEnough = player.y < hoop.y + 45;
+
+  if(nearRimX && highEnough){
+    ball.held = false;
+    canRelease = false;
+
+    // Give ball a little forward/up pop toward rim (feels like dunk)
+    const dir = (hoop.x - player.x);
+    ball.vx = dir * 0.12;   // auto-assist toward hoop
+    ball.vy = -6.5;
+  }
+}
+
+function updateBall(){
+  ball.lastY = ball.y;
+
+  if(ball.held){
+    // follow player hand
+    ball.x = player.x + 18;
+    ball.y = player.y - 24;
+    return;
   }
 
-  // dunk detection (only count once per jump)
-  const nearHoop = Math.abs(player.x - hoop.x) < 42;
-  const highEnough = player.y < hoop.y + 25;
+  // physics
+  ball.vy += gravity;
+  ball.x += ball.vx;
+  ball.y += ball.vy;
 
-  if(player.jumping && nearHoop && highEnough){
+  // bounce off floor
+  if(ball.y > floorY - ball.r){
+    ball.y = floorY - ball.r;
+    ball.vy *= -0.35;
+    ball.vx *= 0.85;
+  }
+
+  // bounce off walls
+  if(ball.x < ball.r){ ball.x = ball.r; ball.vx *= -0.6; }
+  if(ball.x > canvas.width-ball.r){ ball.x = canvas.width-ball.r; ball.vx *= -0.6; }
+
+  // backboard bounce
+  if(ball.x + ball.r > hoop.boardX && ball.x - ball.r < hoop.boardX + hoop.boardW &&
+     ball.y + ball.r > hoop.boardY && ball.y - ball.r < hoop.boardY + hoop.boardH){
+    ball.vx *= -0.7;
+    ball.x = hoop.boardX - ball.r - 1;
+  }
+
+  // SCORE: ball passes through rim circle area while moving downward
+  const dx = ball.x - hoop.x;
+  const dy = ball.y - hoop.y;
+  const dist = Math.hypot(dx, dy);
+
+  const enteringDown = (ball.lastY < hoop.y) && (ball.y >= hoop.y); // crossed center downward
+  const insideRim = dist < (hoop.rimR - 1); // slightly smaller than rim
+  if(!ball.scoredThisShot && enteringDown && insideRim && ball.vy > 0){
+    ball.scoredThisShot = true;
     score++;
     scoreEl.textContent = score;
-    flash = 10;
+    flash = 12;
 
-    // move hoop
-    hoop.x = 420 + Math.random()*320;
+    // new hoop position, and reset ball to player when you land
+    respawnHoop();
+  }
 
-    // prevent multi-score in one jump
-    player.jumping = false;
+  // If ball goes too high off-screen, bring it back a bit (keeps game friendly)
+  if(ball.y < -200){
+    ball.y = -200;
+    ball.vy = 0;
+  }
+}
+
+function jump(){
+  if(player.onGround){
+    player.vy = -14;
+    player.onGround = false;
   }
 }
 
 function loop(){
-  update();
+  updatePlayer();
+  releaseBallIfDunkAttempt();
+  updateBall();
   draw();
   requestAnimationFrame(loop);
 }
 
-function jump(){
-  // only jump if on ground
-  if(player.y >= 300 && player.vy === 0){
-    player.vy = -14;
-    player.jumping = true;
-  }
-}
-
-// keyboard controls
-document.addEventListener("keydown", (e)=>{
-  if(e.code === "ArrowLeft" || e.code === "KeyA") keys.left = true;
-  if(e.code === "ArrowRight" || e.code === "KeyD") keys.right = true;
-  if(e.code === "Space") jump();
+// keyboard
+document.addEventListener("keydown",(e)=>{
+  if(e.code==="ArrowLeft" || e.code==="KeyA") keys.left=true;
+  if(e.code==="ArrowRight" || e.code==="KeyD") keys.right=true;
+  if(e.code==="Space") jump();
+});
+document.addEventListener("keyup",(e)=>{
+  if(e.code==="ArrowLeft" || e.code==="KeyA") keys.left=false;
+  if(e.code==="ArrowRight" || e.code==="KeyD") keys.right=false;
 });
 
-document.addEventListener("keyup", (e)=>{
-  if(e.code === "ArrowLeft" || e.code === "KeyA") keys.left = false;
-  if(e.code === "ArrowRight" || e.code === "KeyD") keys.right = false;
-});
-
-// mobile buttons (press-and-hold)
+// mobile buttons
 const leftBtn = document.getElementById("leftBtn");
 const rightBtn = document.getElementById("rightBtn");
 const jumpBtn = document.getElementById("jumpBtn");
@@ -203,11 +278,11 @@ function hold(btn, onDown, onUp){
   btn.addEventListener("pointerleave", (e)=>{ e.preventDefault(); onUp(); });
   btn.addEventListener("pointercancel", (e)=>{ e.preventDefault(); onUp(); });
 }
-
 hold(leftBtn, ()=>keys.left=true, ()=>keys.left=false);
 hold(rightBtn, ()=>keys.right=true, ()=>keys.right=false);
 jumpBtn.addEventListener("click", jump);
 
+respawnHoop();
 loop();
 </script>
 </body>
