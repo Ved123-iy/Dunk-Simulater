@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>🏀 Dunk Simulator</title>
+<style>
+body{
+  margin:0;
+  background:#0b0f18;
+  color:white;
+  text-align:center;
+  font-family:Arial;
+}
+h1{margin:20px 0 5px;}
+canvas{
+  background:#111827;
+  border-radius:20px;
+  margin-top:10px;
+  box-shadow:0 20px 50px rgba(0,0,0,.6);
+}
+.score{
+  font-size:22px;
+  margin-top:10px;
+}
+.tip{
+  opacity:.7;
+  margin-bottom:10px;
+}
+</style>
+</head>
+<body>
+
+<h1>🏀 Dunk Simulator</h1>
+<div class="score">Score: <span id="score">0</span></div>
+<div class="tip">Press SPACE or tap to jump and dunk!</div>
+
+<canvas id="game" width="800" height="450"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let player = {x:100, y:300, vy:0, jumping:false};
+let hoop = {x:600, y:200};
+let gravity = 0.6;
+let score = 0;
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // floor
+  ctx.fillStyle="#1f2937";
+  ctx.fillRect(0,350,canvas.width,100);
+
+  // hoop
+  ctx.fillStyle="#f97316";
+  ctx.fillRect(hoop.x, hoop.y, 80, 10);
+
+  ctx.fillStyle="#e5e7eb";
+  ctx.fillRect(hoop.x+75, hoop.y-60, 8, 60);
+
+  // player
+  ctx.fillStyle="#06b6d4";
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, 25, 0, Math.PI*2);
+  ctx.fill();
+
+  // ball
+  ctx.fillStyle="#ffb000";
+  ctx.beginPath();
+  ctx.arc(player.x, player.y-35, 12, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function update(){
+  player.vy += gravity;
+  player.y += player.vy;
+
+  // floor collision
+  if(player.y > 300){
+    player.y = 300;
+    player.vy = 0;
+    player.jumping = false;
+  }
+
+  // dunk detection
+  if(player.y < hoop.y + 20 && 
+     player.x + 25 > hoop.x &&
+     player.x < hoop.x + 80){
+       score++;
+       document.getElementById("score").innerText = score;
+       hoop.x = 500 + Math.random()*200;
+  }
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function jump(){
+  if(!player.jumping){
+    player.vy = -14;
+    player.jumping = true;
+  }
+}
+
+document.addEventListener("keydown", e=>{
+  if(e.code === "Space") jump();
+});
+
+canvas.addEventListener("click", jump);
+
+loop();
+</script>
+
+</body>
+</html>
