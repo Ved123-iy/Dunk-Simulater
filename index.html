@@ -49,14 +49,16 @@ const keys = { left:false, right:false };
 const player = {
   x: 140, y: 300, r: 22,
   vy: 0, speed: 5,
-  onGround: true
+  onGround: true,
+  hanging: false,
+  hangTimer: 0
 };
 
-// Hoop (real rim circle + backboard)
+// Hoop (rim + backboard)
 const hoop = {
   x: 640,
   y: 170,
-  rimR: 18,            // rim radius
+  rimR: 18,
   boardX: 690,
   boardY: 85,
   boardW: 10,
@@ -70,13 +72,31 @@ let ball = {
   r: 10,
   vx: 0,
   vy: 0,
-  held: true,          // held by player until release
+  held: true,
   lastY: 0,
   scoredThisShot: false
 };
 
-// dunk release control (prevents auto-spam)
+// dunk release control
 let canRelease = true;
+
+// --- Simple built-in "dunk" sound (no files)
+let audioCtx = null;
+function beepDunk(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "square";
+    o.frequency.setValueAtTime(180, audioCtx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(90, audioCtx.currentTime + 0.08);
+    g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.13);
+  }catch(e){}
+}
 
 function resetBallHeld(){
   ball.held = true;
@@ -100,14 +120,14 @@ function draw(){
   ctx.fillStyle="#e5e7eb";
   ctx.fillRect(hoop.boardX, hoop.boardY, hoop.boardW, hoop.boardH);
 
-  // rim (full circle)
+  // rim
   ctx.strokeStyle="#f97316";
   ctx.lineWidth=6;
   ctx.beginPath();
   ctx.arc(hoop.x, hoop.y, hoop.rimR, 0, Math.PI*2);
   ctx.stroke();
 
-  // net (simple)
+  // net
   ctx.strokeStyle="rgba(255,255,255,0.25)";
   ctx.lineWidth=2;
   for(let i=-2;i<=2;i++){
@@ -130,23 +150,44 @@ function draw(){
   ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
   ctx.fill();
 
+  // arms when hanging
+  if(player.hanging){
+    ctx.strokeStyle="rgba(255,255,255,0.7)";
+    ctx.lineWidth=4;
+    ctx.beginPath();
+    ctx.moveTo(player.x-8, player.y-8);
+    ctx.lineTo(hoop.x-6, hoop.y+6);
+    ctx.moveTo(player.x+8, player.y-8);
+    ctx.lineTo(hoop.x+6, hoop.y+6);
+    ctx.stroke();
+  }
+
   // ball
   ctx.fillStyle="#ffb000";
   ctx.beginPath();
   ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
   ctx.fill();
-  // ball lines
   ctx.strokeStyle="rgba(0,0,0,0.25)";
   ctx.lineWidth=2;
   ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r-2, -0.6, 1.2); ctx.stroke();
   ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r-2, 2.0, 3.7); ctx.stroke();
 
-  // little target hint under hoop
+  // hint under hoop
   ctx.fillStyle="rgba(255,255,255,0.08)";
   ctx.fillRect(hoop.x-40, floorY-6, 80, 6);
 }
 
 function updatePlayer(){
+  // if hanging: freeze movement & gravity briefly
+  if(player.hanging){
+    player.hangTimer--;
+    if(player.hangTimer <= 0){
+      player.hanging = false;
+      player.vy = 2; // drop down
+    }
+    return;
+  }
+
   if(keys.left)  player.x -= player.speed;
   if(keys.right) player.x += player.speed;
   player.x = Math.max(player.r, Math.min(canvas.width-player.r, player.x));
@@ -158,8 +199,9 @@ function updatePlayer(){
     player.y = 300;
     player.vy = 0;
     player.onGround = true;
-    canRelease = true;      // allow a new dunk attempt
-    // if ball is still not held, pick it up automatically on landing
+    canRelease = true;
+
+    // pick ball up automatically when landing
     if(!ball.held) resetBallHeld();
   } else {
     player.onGround = false;
@@ -167,7 +209,7 @@ function updatePlayer(){
 }
 
 function releaseBallIfDunkAttempt(){
-  // Release ball only once per jump, when near rim and high enough
+  if(player.hanging) return;
   if(!ball.held || !canRelease) return;
 
   const nearRimX = Math.abs(player.x - hoop.x) < 40;
@@ -177,9 +219,9 @@ function releaseBallIfDunkAttempt(){
     ball.held = false;
     canRelease = false;
 
-    // Give ball a little forward/up pop toward rim (feels like dunk)
+    // pop toward rim
     const dir = (hoop.x - player.x);
-    ball.vx = dir * 0.12;   // auto-assist toward hoop
+    ball.vx = dir * 0.12;
     ball.vy = -6.5;
   }
 }
@@ -188,25 +230,23 @@ function updateBall(){
   ball.lastY = ball.y;
 
   if(ball.held){
-    // follow player hand
     ball.x = player.x + 18;
     ball.y = player.y - 24;
     return;
   }
 
-  // physics
   ball.vy += gravity;
   ball.x += ball.vx;
   ball.y += ball.vy;
 
-  // bounce off floor
+  // floor bounce
   if(ball.y > floorY - ball.r){
     ball.y = floorY - ball.r;
     ball.vy *= -0.35;
     ball.vx *= 0.85;
   }
 
-  // bounce off walls
+  // wall bounce
   if(ball.x < ball.r){ ball.x = ball.r; ball.vx *= -0.6; }
   if(ball.x > canvas.width-ball.r){ ball.x = canvas.width-ball.r; ball.vx *= -0.6; }
 
@@ -217,24 +257,35 @@ function updateBall(){
     ball.x = hoop.boardX - ball.r - 1;
   }
 
-  // SCORE: ball passes through rim circle area while moving downward
+  // score: ball crosses rim center downward and inside rim
   const dx = ball.x - hoop.x;
   const dy = ball.y - hoop.y;
   const dist = Math.hypot(dx, dy);
+  const enteringDown = (ball.lastY < hoop.y) && (ball.y >= hoop.y);
+  const insideRim = dist < (hoop.rimR - 1);
 
-  const enteringDown = (ball.lastY < hoop.y) && (ball.y >= hoop.y); // crossed center downward
-  const insideRim = dist < (hoop.rimR - 1); // slightly smaller than rim
   if(!ball.scoredThisShot && enteringDown && insideRim && ball.vy > 0){
     ball.scoredThisShot = true;
+
     score++;
     scoreEl.textContent = score;
     flash = 12;
 
-    // new hoop position, and reset ball to player when you land
+    // RIM HANG effect
+    player.hanging = true;
+    player.hangTimer = 25;        // frames to hang
+    player.x = hoop.x;            // pull player to rim
+    player.y = hoop.y + 28;       // position under rim
+    player.vy = 0;
+
+    // dunk sound
+    beepDunk();
+
+    // new hoop location for next dunk
     respawnHoop();
   }
 
-  // If ball goes too high off-screen, bring it back a bit (keeps game friendly)
+  // keep friendly
   if(ball.y < -200){
     ball.y = -200;
     ball.vy = 0;
@@ -242,6 +293,7 @@ function updateBall(){
 }
 
 function jump(){
+  if(player.hanging) return;
   if(player.onGround){
     player.vy = -14;
     player.onGround = false;
